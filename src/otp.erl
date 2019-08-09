@@ -8,26 +8,27 @@ msg_size()   -> 10000.
 amount()     -> ?LIMIT + 100.
 
 launch(App,N,PredN,Len) ->
-  spawn(?MODULE, init, [ {self(),App,N,PredN,Len} ]).
+  spawn(srv, init, [ {self(),App,N,PredN,Len} ]).
 
 % file ops
 
 open(App) -> {ok, F} = file:open(lists:concat([App]), [raw, binary, append, read, write]), F.
 empty_append(App,X) -> ok.
 pure_append(App,X) -> F = open(App), file:write(F,X), file:close(F).
-append(App,X) -> spawn(fun() -> pure_append(App,X) end).
+append(App,X) -> pure_append(App,X).
 
 % on disk chunk writer
 
 flush(Msg,Sender,#gen_server{file=F,circa=X,acc_len=AccLen,app=App,
                              acc_pred=PredN,acc=N,time=T1,init=T0}=Server) ->
     append(App,X),
+    io:format("FLUSH~n"),
     T2 = erlang:monotonic_time(milli_seconds),
     NewAccLen = round(AccLen/(T2/1000-T1/1000)),
 %    NewAccLen = 220000000, % disable variator
     spawn (fun() -> io:format("~p: ~p: rate ~p MB/s messages ~p in ~p/~p sec~n",
-       [self(),otp:name(App),round(NewAccLen/1000000),N-PredN,round(T2/1000-T1/1000),round(T2/1000-T0/1000)]) end),
-    Server#gen_server{acc_len=0,acc_pred=N,acc=N+1,len=NewAccLen,time=T2,circa= <<>>}.
+       [self(),srv:name(App),round(NewAccLen/1000000),N-PredN,round(T2/1000-T1/1000),round(T2/1000-T0/1000)]) end),
+    Server#gen_server{acc_len=0,acc_pred=N,acc=N+1,len=NewAccLen,time=T2}.
 
 % OTP GenServer Impl
 
@@ -56,7 +57,8 @@ system(Msg,Sender,State) ->
 
 % client
 
-observe(N) -> observer:start(), timer:sleep(2000), streams(N).
+observe(N) -> observer:start(), timer:sleep(2000), 
+              streams(N).
 streams(N) -> [ begin start(I), timer:sleep(250) end || I <- lists:seq(1,N) ].
 
 start(App) ->
@@ -72,8 +74,8 @@ test_pid(App) ->
     {Timer,_} = timer:tc(fun() ->
                       Loop = fun L(0) -> ok;
                                  L(N) -> try
-%        gen_server:call(whereis(otp:name(App)),binary:copy(<<"1">>,msg_size()))
-         whereis(otp:name(App)) ! binary:copy(<<"1">>,?MODULE:msg_size())
+%        gen_server:call(whereis(srv:name(App)),binary:copy(<<"1">>,msg_size()))
+         whereis(srv:name(App)) ! binary:copy(<<"1">>,otp:msg_size())
                                          catch E:R-> retry_not_implemented end,
                                          L(N-1) end,
                       Loop(amount()),
@@ -82,7 +84,7 @@ test_pid(App) ->
     io:format("~p messages sent in ~ps with ~p m/s rate~n",[amount(),round(T),trunc(amount()/T)]),
     ok.
 
-secret()                  -> application:get_env(streams,secret,<<"ThisIsClassified">>).
+secret()                  -> <<"ThisIsClassified">>.
 append(Circ,Record,SHA,N) -> signature(SHA,term_to_binary(Record),Circ,N).
 sign(SHA,Bin,Type)        -> crypto:hmac(Type,secret(),<<SHA/binary,Bin/binary>>).
 signature(SHA,Bin,Circ,N) -> {[Bin|Circ], size(Bin), <<>>}.

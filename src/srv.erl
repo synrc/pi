@@ -4,7 +4,7 @@
 -include("streams.hrl").
 
 name(App) ->
-    list_to_atom(lists:concat([writer,App])).
+    list_to_atom(lists:concat([otp,App])).
 
 emulate_otp(Parent,App) ->
     catch unregister(name(App)),
@@ -21,7 +21,7 @@ init(#gen_server{app=App,parent=Parent}=Server) ->
 init({Parent, App, N, PredN, {Len,Msg}}) ->
     emulate_otp(Parent,App),
     T = erlang:monotonic_time(milli_seconds),
-    Server = #gen_server{file=writer:open(App),parent=Parent,app=App,
+    Server = #gen_server{file=otp:open(App),parent=Parent,app=App,
                     acc_pred=PredN,acc=N,acc_len=0,state=[],msg=Msg,
                     len=Len,circa= <<>>,time=T, init=T,sign= <<>>},
     loop(Parent, {local, ?MODULE}, Server, ?MODULE, infinity).
@@ -33,7 +33,7 @@ loop(Parent, Name, State, Mod, Time)      -> server(drain(Time),        Parent, 
 hibernate(Parent, Name, State, Mod)       -> server(drain(),            Parent, Name, State, Mod).
 drain()                                   -> receive Input -> Input end.
 drain(Timeout)                            -> receive Input -> Input after Timeout -> {timeout,[],[]} end.
-reply({To,Tag},Reply)                     -> catch To ! {Tag,Reply}.
+reply({To,Tag},Reply)                     -> To ! {Tag,Reply}.
 
 % gen_server protocol
 
@@ -68,11 +68,10 @@ dispatch(Call,Sender,P,N,M)   ->
 % server
 
 server(Msg,Sender,#gen_server{acc=N}=Server) when N >= ?LIMIT ->
-    io:format("LIMIT: ~p~n",[{Msg,Sender,N}]),
     {stop, normal, Server};
 
 server(Msg,Sender,#gen_server{acc=N,len=C,acc_len=AccLen}=Server) when AccLen > C ->
-    spawn(?MODULE, init, [ otp:flush(Msg,Sender,Server#gen_server{acc=N+1}) ]),
+    spawn(srv, init, [ otp:flush(Msg,Sender,Server#gen_server{acc=N+1}) ]),
     {stop, normal, Server};
 
 server(Msg,Sender,#gen_server{acc=N,circa=X,acc_len=AccLen,sign=Sign}=Server) ->

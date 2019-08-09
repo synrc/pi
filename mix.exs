@@ -23,7 +23,7 @@ defmodule PI.Mixfile do
   end
 
   def application() do
-    [mod: {:pay, []}]
+    [mod: {:pi, []}]
   end
 
   def deps() do
